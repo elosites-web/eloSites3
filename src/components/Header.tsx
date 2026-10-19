@@ -1,318 +1,298 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useEffect, useRef } from 'react';
+import { motion } from 'motion/react';
 import { EloLogo } from './EloLogo';
-import { WhatsAppIcon } from './WhatsAppIcon';
-import { NAVIGATION_ITEMS, SITE_CONFIG, whatsappUrl, scrollToHash } from '../types';
-import { Menu, X, ArrowUpRight } from 'lucide-react';
+import { ScreenId, SCREENS } from '../types';
+import { preloadScreen } from '../preloadScreens';
 
-const MENU_FOCUSABLE =
-  'a[href], button:not([disabled]), [tabindex]:not([tabindex="-1"])';
+interface HeaderProps {
+  currentScreen: ScreenId;
+  onSelectScreen: (screenId: ScreenId) => void;
+  onPreviousScreen?: () => void;
+  onNextScreen?: () => void;
+  isMenuOpen: boolean;
+  setIsMenuOpen: (isOpen: boolean) => void;
+}
 
-export const Header: React.FC = () => {
-  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
-  const [isScrolled, setIsScrolled] = useState(false);
-  const [activeHref, setActiveHref] = useState('');
-  const menuToggleRef = useRef<HTMLButtonElement>(null);
-  const firstMobileLinkRef = useRef<HTMLAnchorElement>(null);
-  const headerRef = useRef<HTMLElement>(null);
-  const restoreFocusRef = useRef(false);
+export const Header: React.FC<HeaderProps> = ({
+  currentScreen,
+  onSelectScreen,
+  isMenuOpen,
+  setIsMenuOpen,
+}) => {
+  const isHome = currentScreen === 'home';
+  const savedScrollPositionRef = useRef<number>(0);
 
+  // Tecla de atalho: Escape para fechar o menu, 'm' ou 'M' para abrir/fechar o menu
   useEffect(() => {
-    const handleScroll = () => {
-      setIsScrolled(window.scrollY > 20);
-    };
-    window.addEventListener('scroll', handleScroll, { passive: true });
-    return () => window.removeEventListener('scroll', handleScroll);
-  }, []);
-
-  useEffect(() => {
-    const closeOnDesktop = () => {
-      if (window.matchMedia('(min-width: 1024px)').matches) {
-        setIsMobileMenuOpen(false);
-      }
-    };
-    window.addEventListener('resize', closeOnDesktop);
-    return () => window.removeEventListener('resize', closeOnDesktop);
-  }, []);
-
-  useEffect(() => {
-    const sections = NAVIGATION_ITEMS.map((item) =>
-      document.querySelector(item.href)
-    ).filter((el): el is HTMLElement => el instanceof HTMLElement);
-
-    if (sections.length === 0) return;
-
-    const observer = new IntersectionObserver(
-      (entries) => {
-        const visible = entries
-          .filter((entry) => entry.isIntersecting)
-          .sort((a, b) => b.intersectionRatio - a.intersectionRatio);
-
-        if (visible.length === 0) return;
-
-        setActiveHref(`#${visible[0].target.id}`);
-      },
-      {
-        root: null,
-        rootMargin: '-30% 0px -50% 0px',
-        threshold: [0.1, 0.25, 0.5, 0.75],
-      }
-    );
-
-    sections.forEach((section) => observer.observe(section));
-    return () => observer.disconnect();
-  }, []);
-
-  useEffect(() => {
-    if (!isMobileMenuOpen) {
-      if (restoreFocusRef.current) {
-        restoreFocusRef.current = false;
-        menuToggleRef.current?.focus();
-      }
-      return;
-    }
-
-    restoreFocusRef.current = true;
-    const scrollY = window.scrollY;
-    const originalPosition = document.body.style.position;
-    const originalTop = document.body.style.top;
-    const originalWidth = document.body.style.width;
-    const originalOverflow = document.body.style.overflow;
-
-    document.body.style.position = 'fixed';
-    document.body.style.top = `-${scrollY}px`;
-    document.body.style.width = '100%';
-    document.body.style.overflow = 'hidden';
-
-    const focusTimer = window.setTimeout(() => {
-      firstMobileLinkRef.current?.focus();
-    }, 0);
-
-    const getFocusable = (): HTMLElement[] => {
-      const root = headerRef.current;
-      if (!root) return [];
-      return Array.from(root.querySelectorAll(MENU_FOCUSABLE)).filter(
-        (el): el is HTMLElement =>
-          el instanceof HTMLElement && el.getClientRects().length > 0
-      );
-    };
-
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') {
-        setIsMobileMenuOpen(false);
-        return;
-      }
-      if (e.key !== 'Tab') return;
-
-      const focusable = getFocusable();
-      if (focusable.length === 0) {
-        e.preventDefault();
+      const targetTag = (e.target as HTMLElement)?.tagName?.toLowerCase();
+      if (targetTag === 'input' || targetTag === 'textarea' || targetTag === 'select') {
         return;
       }
 
-      const first = focusable[0];
-      const last = focusable[focusable.length - 1];
-      const active = document.activeElement;
-      const inside = active instanceof HTMLElement && headerRef.current?.contains(active);
-
-      if (e.shiftKey) {
-        if (!inside || active === first) {
-          e.preventDefault();
-          last.focus();
+      if (e.key === 'Escape' && isMenuOpen) {
+        handleCloseMenuWithoutNav();
+      } else if ((e.key === 'm' || e.key === 'M') && !e.ctrlKey && !e.metaKey && !e.altKey) {
+        if (isMenuOpen) {
+          handleCloseMenuWithoutNav();
+        } else {
+          handleOpenMenu();
         }
-      } else if (!inside || active === last) {
-        e.preventDefault();
-        first.focus();
       }
     };
 
     window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [isMenuOpen]);
 
-    return () => {
-      window.clearTimeout(focusTimer);
-      window.removeEventListener('keydown', handleKeyDown);
-      document.body.style.position = originalPosition;
-      document.body.style.top = originalTop;
-      document.body.style.width = originalWidth;
-      document.body.style.overflow = originalOverflow;
-      const previousScrollBehavior = document.documentElement.style.scrollBehavior;
-      document.documentElement.style.scrollBehavior = 'auto';
-      window.scrollTo(0, scrollY);
-      document.documentElement.style.scrollBehavior = previousScrollBehavior;
-    };
-  }, [isMobileMenuOpen]);
-
-  const desktopWhatsappUrl = whatsappUrl(SITE_CONFIG.headerWhatsappMessage);
-  const mobileMenuWhatsappUrl = whatsappUrl(SITE_CONFIG.mobileMenuWhatsappMessage);
-
-  const handleNavClick = (href: string) => {
-    setActiveHref(href);
-    setIsMobileMenuOpen(false);
-    window.setTimeout(() => {
-      scrollToHash(href);
-    }, 50);
+  // Abre o menu salvando a posição de scroll anterior e travando a rolagem do documento
+  const handleOpenMenu = () => {
+    savedScrollPositionRef.current = window.scrollY || window.pageYOffset || 0;
+    setIsMenuOpen(true);
   };
 
-  const navItemClass = (href: string, variant: 'desktop' | 'mobile') => {
-    const isActive = activeHref === href;
-    if (variant === 'desktop') {
-      return `px-3.5 py-2 rounded-lg transition-all duration-200 min-h-11 inline-flex items-center whitespace-nowrap border ${
-        isActive
-          ? 'text-white bg-indigo-500/18 border-indigo-400/35 shadow-[inset_0_1px_0_rgba(255,255,255,0.06)]'
-          : 'text-slate-300 hover:text-white hover:bg-white/[0.05] border-transparent'
-      }`;
+  // Fecha o menu sem navegação: restaura o scroll para a posição salva
+  const handleCloseMenuWithoutNav = () => {
+    setIsMenuOpen(false);
+    window.scrollTo({ top: savedScrollPositionRef.current, behavior: 'instant' });
+  };
+
+  // Alterna o estado de abertura do menu
+  const toggleMenu = () => {
+    if (isMenuOpen) {
+      handleCloseMenuWithoutNav();
+    } else {
+      handleOpenMenu();
     }
-    return `relative flex items-center justify-start gap-3 px-3 min-[360px]:px-3.5 py-3.5 rounded-xl text-base font-medium transition-all duration-200 min-h-11 min-w-0 border ${
-      isActive
-        ? 'text-white bg-indigo-500/18 border-indigo-400/35'
-        : 'text-slate-200 hover:text-white hover:bg-white/[0.05] border-transparent'
-    }`;
   };
+
+  // Travar o scroll da página enquanto o menu de navegação estiver aberto
+  useEffect(() => {
+    if (isMenuOpen) {
+      document.body.style.overflow = 'hidden';
+      document.documentElement.style.overflow = 'hidden';
+    } else {
+      document.body.style.overflow = '';
+      document.documentElement.style.overflow = '';
+    }
+    return () => {
+      document.body.style.overflow = '';
+      document.documentElement.style.overflow = '';
+    };
+  }, [isMenuOpen]);
+
+  const currentMeta = SCREENS.find((s) => s.id === currentScreen) || SCREENS[0];
+
+  // Componente do Botão de Menu com 3 barras na identidade visual da ēloSites (roxo e cinza) que se transformam suavemente no 'X' de fechar
+  const renderMenuButton = () => (
+    <button
+      id="menu-de-navegacao-btn"
+      type="button"
+      onClick={toggleMenu}
+      aria-expanded={isMenuOpen}
+      aria-controls="multi-screen-navigation-modal"
+      aria-label={isMenuOpen ? 'Fechar menu de navegação' : 'Abrir menu de navegação'}
+      className="relative group w-11 h-11 flex items-center justify-center bg-transparent border-0 shadow-none active:scale-95 transition-transform duration-200 cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-purple-400/80 rounded-lg p-0"
+    >
+      {/* Ícone com 3 traços que se transformam suavemente no X */}
+      <div className="relative w-6 h-6 flex items-center justify-center pointer-events-none">
+        {/* Traço superior: tom de roxo oficial da ēloSites. Desce ao centro e gira 45° para formar o X com o traço de baixo */}
+        <span
+          className={`absolute left-1/2 -translate-x-1/2 top-[11px] h-[2px] rounded-full transition-[color,background-color,border-color,box-shadow,opacity,transform,translate,scale,rotate,--tw-gradient-from,--tw-gradient-via,--tw-gradient-to,--tw-gradient-stops] duration-300 ease-[cubic-bezier(0.23,1,0.32,1)] ${
+            isMenuOpen
+              ? 'w-5 translate-y-0 rotate-45 bg-gradient-to-r from-purple-400 via-violet-400 to-fuchsia-400 shadow-[0_0_12px_rgba(168,85,247,0.85)] group-hover:from-purple-300 group-hover:to-violet-300'
+              : 'w-5 -translate-y-[6px] rotate-0 bg-gradient-to-r from-purple-500 via-violet-500 to-indigo-500 group-hover:from-purple-400 group-hover:to-violet-400 shadow-[0_0_8px_rgba(168,85,247,0.7)]'
+          }`}
+        />
+        {/* Traço do meio: tom branco/cinza claro alinhado à esquerda dos outros traços */}
+        <span
+          className={`absolute left-[2px] top-[11px] h-[2px] rounded-full bg-gradient-to-r from-slate-100 via-white to-slate-300 transition-[color,background-color,border-color,box-shadow,opacity,transform,translate,scale,rotate,width,--tw-gradient-from,--tw-gradient-via,--tw-gradient-to,--tw-gradient-stops] duration-200 ease-out shadow-[0_0_6px_rgba(255,255,255,0.4)] origin-left ${
+            isMenuOpen
+              ? 'w-0 opacity-0 scale-x-0'
+              : 'w-3.5 opacity-100 scale-x-100 translate-y-0 group-hover:w-5 group-hover:from-white group-hover:to-slate-200'
+          }`}
+        />
+        {/* Traço inferior: tom de roxo oficial da ēloSites. Sobe ao centro e gira -45° para formar o X com o traço superior */}
+        <span
+          className={`absolute left-1/2 -translate-x-1/2 top-[11px] h-[2px] rounded-full transition-[color,background-color,border-color,box-shadow,opacity,transform,translate,scale,rotate,--tw-gradient-from,--tw-gradient-via,--tw-gradient-to,--tw-gradient-stops] duration-300 ease-[cubic-bezier(0.23,1,0.32,1)] ${
+            isMenuOpen
+              ? 'w-5 translate-y-0 -rotate-45 bg-gradient-to-r from-indigo-400 via-violet-400 to-purple-400 shadow-[0_0_12px_rgba(168,85,247,0.85)] group-hover:from-indigo-300 group-hover:to-purple-300'
+              : 'w-5 translate-y-[6px] rotate-0 group-hover:w-5 bg-gradient-to-r from-indigo-500 via-violet-500 to-purple-500 group-hover:from-indigo-400 group-hover:to-purple-400 shadow-[0_0_8px_rgba(168,85,247,0.7)]'
+          }`}
+        />
+      </div>
+    </button>
+  );
 
   return (
     <>
-      <header
-        ref={headerRef}
-        id="header-nav"
-        className={`fixed top-0 left-0 right-0 z-50 w-full max-w-[100%] overflow-x-clip transition-all duration-300 ease-[cubic-bezier(0.16,1,0.3,1)] pt-[max(0.75rem,env(safe-area-inset-top))] ${
-          isScrolled || isMobileMenuOpen
-            ? 'bg-[#090D16]/90 backdrop-blur-xl border-b border-white/[0.06] pb-3 shadow-[0_12px_40px_-24px_rgba(0,0,0,0.7)]'
-            : 'bg-[#090D16]/70 backdrop-blur-md border-b border-white/[0.04] pb-3.5 sm:pb-4'
-        }`}
-      >
-        <div className="page-shell page-x">
-          <div className={`flex items-center justify-between gap-2 min-w-0 ${isMobileMenuOpen ? 'h-11' : ''}`}>
-            {isMobileMenuOpen ? (
-              <>
-                <div className="w-11 h-11 shrink-0 lg:hidden" aria-hidden="true" />
-                <div className="flex-1 min-w-0 flex items-center justify-center lg:flex-initial lg:justify-start h-11">
-                  <a
-                    href="#inicio"
-                    id="brand-logo-link"
-                    className="flex items-center justify-center h-11 min-w-0 max-w-full leading-none focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 rounded-lg transition-opacity hover:opacity-90"
-                    aria-label="ēloSites — Página inicial"
-                    onClick={() => setIsMobileMenuOpen(false)}
-                  >
-                    <EloLogo size="md" />
-                  </a>
-                </div>
-              </>
-            ) : (
-              <a
-                href="#inicio"
-                id="brand-logo-link"
-                className="group flex items-center min-w-0 max-w-[calc(100%-3.25rem)] lg:max-w-none leading-none focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 rounded-lg p-1 -ml-1 transition-opacity hover:opacity-90"
-                aria-label="ēloSites — Página inicial"
-              >
-                <EloLogo size="md" />
-              </a>
-            )}
+      {/* 
+        POSICIONAMENTO DO CABEÇALHO E BOTÃO DE MENU:
+        1. QUANDO O MENU ESTÁ ABERTO (em TODAS as telas):
+           O 'X' fica posicionado centralizado no topo em todas as telas, exatamente igual à tela da Home.
+        2. QUANDO O MENU ESTÁ FECHADO:
+           - Na Home: Botão de 3 traços centralizado no topo (sem logotipo no canto).
+           - Nas demais telas (Início, Serviços, Portfólio, Planos, Sobre, Contato):
+             Logotipo na esquerda (com 'O MELHOR SITE PELO MELHOR PREÇO' abaixo) e botão de 3 traços na direita do cabeçalho.
+      */}
 
-            <nav
-              aria-label="Navegação principal"
-              className="hidden lg:flex items-center gap-1 xl:gap-2 text-sm font-medium text-slate-300"
-            >
-              {NAVIGATION_ITEMS.map((item) => (
-                <a
-                  key={item.id}
-                  id={item.id}
-                  href={item.href}
-                  onClick={(e) => {
-                    e.preventDefault();
-                    handleNavClick(item.href);
+      {/* Menu Aberto em qualquer tela: 'X' posicionado centralizado no topo (igual à home) */}
+      {isMenuOpen && (
+        <header
+          id="header-nav-active"
+          className="fixed top-4 sm:top-6 left-0 right-0 z-50 pointer-events-none flex justify-center items-center"
+        >
+          <div className="pointer-events-auto">
+            {renderMenuButton()}
+          </div>
+        </header>
+      )}
+
+      {/* Menu Fechado na Home: 3 traços centralizados no topo */}
+      {isHome && !isMenuOpen && (
+        <header
+          id="header-nav"
+          className="fixed top-4 sm:top-6 left-0 right-0 z-50 pointer-events-none flex justify-center items-center"
+        >
+          <div className="pointer-events-auto">
+            {renderMenuButton()}
+          </div>
+        </header>
+      )}
+
+      {/* Menu Fechado nas demais telas: logotipo à esquerda e botão de 3 traços à direita do cabeçalho */}
+      {!isHome && !isMenuOpen && (
+        <header
+          id="header-nav"
+          className="fixed top-0 left-0 right-0 z-50 transition-[color,background-color,border-color,box-shadow,opacity,transform,translate,scale,rotate,--tw-gradient-from,--tw-gradient-via,--tw-gradient-to,--tw-gradient-stops] duration-300 bg-gradient-to-r from-[#050814]/92 via-[#090e23]/88 to-[#0d1533]/92 backdrop-blur-md border-b border-indigo-500/20 py-2 sm:py-2.5 shadow-xl shadow-[#020617]/50 pointer-events-auto"
+        >
+          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 relative">
+            <div className="flex items-center justify-between gap-3 sm:gap-6 min-h-[44px]">
+              {/* Logo do Estúdio à esquerda com frase oficial abaixo */}
+              <div className="flex items-center gap-2 sm:gap-3 shrink-0 z-10">
+                <button
+                  type="button"
+                  id="brand-logo-link"
+                  onClick={() => {
+                    onSelectScreen('home');
                   }}
-                  className={navItemClass(item.href, 'desktop')}
-                  aria-current={activeHref === item.href ? 'location' : undefined}
+                  className="group focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 rounded-lg p-1 -ml-1 transition-opacity hover:opacity-90 text-left flex items-center gap-2.5 shrink-0 cursor-pointer"
+                  aria-label="ēloSites — Ir para a Página Inicial (Home)"
                 >
-                  {item.label}
-                </a>
-              ))}
-            </nav>
+                  <EloLogo size="md" />
+                </button>
 
-            <div className="hidden lg:flex items-center gap-3 shrink-0">
-              <a
-                id="header-cta-whatsapp"
-                href={desktopWhatsappUrl}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="cta-primary inline-flex items-center gap-2.5 px-4 py-2.5 rounded-lg text-sm font-semibold text-white min-h-11"
-              >
-                <WhatsAppIcon className="w-4 h-4" />
-                <span>Falar no WhatsApp</span>
-              </a>
+                {/* Indicador sutil da tela ativa atual */}
+                <div className="hidden lg:flex items-center pl-3 border-l border-white/[0.08]">
+                  <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-indigo-950/60 border border-indigo-500/25">
+                    <span className="w-1.5 h-1.5 rounded-full bg-indigo-400 animate-pulse shadow-[0_0_8px_#818cf8]" />
+                    <span className="text-xs font-semibold text-slate-200">
+                      {currentMeta.shortTitle}
+                    </span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Botão do Menu à direita nas telas internas */}
+              <div className="flex items-center ml-auto shrink-0 z-10 pointer-events-auto">
+                {renderMenuButton()}
+              </div>
             </div>
+          </div>
+        </header>
+      )}
 
+      {/* 
+        MODAL DO MENU DE NAVEGAÇÃO:
+        - O próprio botão de menu (no topo) se transforma no 'X' de fechar no centro do topo em todas as telas.
+        - No centro da viewport, a lista em cascata dos nomes das 7 seções perfeitamente centralizada.
+        - No pé da página, o logotipo ēloSites centralizado com a frase 'O MELHOR SITE PELO MELHOR PREÇO'.
+      */}
+      {isMenuOpen && (
+        <div
+          id="multi-screen-navigation-modal"
+          role="dialog"
+          aria-modal="true"
+          aria-label="Menu de Navegação das Seções ēloSites"
+          className="nav-menu-modal-container fixed inset-0 z-40 flex flex-col items-center justify-between pt-16 sm:pt-20 pb-6 sm:pb-8 px-4 bg-black/50 backdrop-blur-[2px] animate-in fade-in duration-200 select-none overflow-y-auto"
+          onClick={handleCloseMenuWithoutNav}
+        >
+          {/* Espaçador flexível superior */}
+          <div className="shrink-0 h-2" aria-hidden="true" />
+
+          {/* Lista centralizada em cascata dos nomes das seções */}
+          <div
+            className="nav-menu-list-wrap relative w-full flex flex-col items-center justify-center text-center my-auto px-4 pointer-events-auto"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <ul className="nav-menu-list flex flex-col items-center justify-center py-0.5 w-full">
+              {SCREENS.map((screen, index) => {
+                const isActive = screen.id === currentScreen;
+
+                return (
+                  <motion.li
+                    key={screen.id}
+                    initial={{ opacity: 0, y: 12 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{
+                      delay: 0.03 * index,
+                      duration: 0.28,
+                      ease: [0.16, 1, 0.3, 1],
+                    }}
+                    className="nav-menu-list-item w-full flex justify-center"
+                  >
+                    <button
+                      type="button"
+                      onClick={() => {
+                        onSelectScreen(screen.id);
+                      }}
+                      onPointerEnter={() => preloadScreen(screen.id)}
+                      onFocus={() => preloadScreen(screen.id)}
+                      onTouchStart={() => preloadScreen(screen.id)}
+                      className={`nav-menu-link-item group relative rounded-md focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400/70 flex items-center justify-center cursor-pointer ${
+                        isActive ? 'is-active scale-105' : 'hover:scale-105'
+                      }`}
+                    >
+                      <span className="font-display nav-menu-link-text tracking-tight transition-transform duration-200 group-hover:-translate-y-0.5">
+                        {screen.shortTitle}
+                      </span>
+                    </button>
+                  </motion.li>
+                );
+              })}
+            </ul>
+          </div>
+
+          {/* Logotipo centralizado no pé da página com frase oficial vinculada à largura exata da logo */}
+          <div
+            className="nav-menu-logo-wrap shrink-0 flex flex-col items-center justify-center pointer-events-auto mt-auto"
+            onClick={(e) => e.stopPropagation()}
+          >
             <button
-              ref={menuToggleRef}
-              id="mobile-menu-toggle"
               type="button"
-              onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
-              aria-expanded={isMobileMenuOpen}
-              aria-controls="mobile-menu-drawer"
-              aria-label={isMobileMenuOpen ? 'Fechar menu de navegação' : 'Abrir menu de navegação'}
-              className="lg:hidden flex items-center justify-center w-11 h-11 shrink-0 rounded-lg text-slate-300 hover:text-white hover:bg-white/[0.06] transition-colors duration-200 focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500"
+              onClick={() => {
+                onSelectScreen('home');
+              }}
+              className="group focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400 rounded-lg p-1 transition-transform hover:scale-105 cursor-pointer flex flex-col items-center justify-center"
+              aria-label="ēloSites — Ir para a Página Inicial (Home)"
             >
-              {isMobileMenuOpen ? (
-                <X className="w-6 h-6 text-indigo-400" />
-              ) : (
-                <Menu className="w-6 h-6" />
-              )}
+              <img
+                src="/logo-elosites-1360.png"
+                alt="ēloSites"
+                width={1360}
+                height={337}
+                className="nav-menu-logo-img w-auto object-contain drop-shadow-[0_0_20px_rgba(168,85,247,0.35)]"
+              />
+              <div className="flex flex-col items-center justify-center text-center">
+                <span className="w-full text-center mt-1 text-[7px] min-[380px]:text-[8px] sm:text-[9.5px] font-semibold tracking-wider uppercase text-slate-400 select-none leading-tight whitespace-nowrap">
+                  O melhor site pelo melhor preço
+                </span>
+              </div>
             </button>
           </div>
         </div>
-
-        {isMobileMenuOpen && (
-          <div
-            id="mobile-menu-drawer"
-            className="mobile-menu-panel lg:hidden page-x border-t border-white/[0.06] bg-[#0B101D]/95 pt-3 sm:pt-4 pb-[max(1.5rem,env(safe-area-inset-bottom))] space-y-4 shadow-[0_24px_60px_-20px_rgba(0,0,0,0.75)] transition-all duration-200 overflow-y-auto overflow-x-clip overscroll-contain min-w-0"
-          >
-            <nav aria-label="Navegação mobile" className="flex flex-col space-y-1">
-              {NAVIGATION_ITEMS.map((item, index) => (
-                <a
-                  key={`mobile-${item.id}`}
-                  id={`mobile-${item.id}`}
-                  ref={index === 0 ? firstMobileLinkRef : undefined}
-                  href={item.href}
-                  onClick={(e) => {
-                    e.preventDefault();
-                    handleNavClick(item.href);
-                  }}
-                    className={navItemClass(item.href, 'mobile')}
-                    aria-current={activeHref === item.href ? 'location' : undefined}
-                >
-                  <span className="flex-1 text-left">{item.label}</span>
-                  <ArrowUpRight
-                    className="absolute right-3 min-[360px]:right-3.5 w-4 h-4 text-slate-500"
-                    aria-hidden="true"
-                  />
-                </a>
-              ))}
-            </nav>
-
-            <div className="pt-3 border-t border-white/[0.06]">
-              <a
-                id="mobile-cta-whatsapp"
-                href={mobileMenuWhatsappUrl}
-                target="_blank"
-                rel="noopener noreferrer"
-                onClick={() => setIsMobileMenuOpen(false)}
-                className="cta-primary flex items-center justify-center gap-2.5 w-full py-3.5 px-4 rounded-xl text-base font-semibold text-white min-h-12"
-              >
-                <WhatsAppIcon className="w-5 h-5" />
-                <span>Falar no WhatsApp</span>
-              </a>
-            </div>
-          </div>
-        )}
-      </header>
-
-      {isMobileMenuOpen && (
-        <div
-          id="mobile-menu-backdrop"
-          aria-hidden="true"
-          onClick={() => setIsMobileMenuOpen(false)}
-          className="fixed inset-0 z-[45] bg-black/80 backdrop-blur-sm transition-opacity duration-200 lg:hidden"
-        />
       )}
     </>
   );
 };
+
